@@ -8,6 +8,23 @@ var homeTemplate = template.Must(template.New("").Parse(`
 <head>
 <meta charset="utf-8">
 <script>  
+
+function getUrlVars() {
+    var vars = {};
+    var parts = window.location.href.replace(/[?&]+([^=&]+)=([^&]*)/gi, function(m,key,value) {
+        vars[key] = value;
+    });
+    return vars;
+}
+
+function getUrlParam(parameter, defaultvalue){
+    var urlparameter = defaultvalue;
+    if(window.location.href.indexOf(parameter) > -1){
+        urlparameter = getUrlVars()[parameter];
+        }
+    return urlparameter;
+}
+
 window.addEventListener("load", function(evt) {
 
     var output = document.getElementById("output");
@@ -24,7 +41,8 @@ window.addEventListener("load", function(evt) {
         if (ws) {
             return false;
         }
-        ws = new WebSocket("{{.}}");
+		console.log(getUrlParam("name", "defaultname"))
+        ws = new WebSocket("{{.}}?name=" + getUrlParam("name", "defaultname"));
         ws.onopen = function(evt) {
             print("OPEN");
         }
