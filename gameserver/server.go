@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
@@ -19,7 +20,8 @@ type GameServer struct {
 	HTTPServer *http.Server
 	Mux        *mux.Router
 
-	Rooms map[string]*Room
+	roomLock sync.RWMutex
+	Rooms    map[string]*Room
 }
 
 func NewGameServer() *GameServer {
@@ -65,9 +67,13 @@ func (gs *GameServer) WSHandler(w http.ResponseWriter, r *http.Request) {
 	log.Info("Websocket attempt started")
 	vars := mux.Vars(r)
 	gid := vars["gid"]
+	gs.roomLock.RLock()
 	room, ok := gs.Rooms[gid]
+	gs.roomLock.RUnlock()
 	if !ok {
+		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = fmt.Fprintf(w, "Unable to find the game room socket: %v\n", fmt.Errorf("gid: %s", gid))
+		log.Errorf("Unable to find the game room socket: %v\n", fmt.Errorf("gid: %s", gid))
 		return
 	}
 
@@ -98,6 +104,8 @@ func (gs *GameServer) CreateLobby(gid string) (bool, error) {
 		return false, fmt.Errorf("game id cannot be blank")
 	}
 
+	gs.roomLock.Lock()
+	defer gs.roomLock.Unlock()
 	_, ok := gs.Rooms[gid]
 	if ok {
 		return false, nil
@@ -108,16 +116,55 @@ func (gs *GameServer) CreateLobby(gid string) (bool, error) {
 	return true, nil
 }
 
+func (gs *GameServer) GarbageCollector(ctx context.Context) {
+	ticker := time.NewTicker(time.Minute)
+	for {
+		select {
+		case <-ctx.Done():
+		case <-ticker.C:
+		}
+
+		start := time.Now()
+		gs.roomLock.Lock()
+		for gid, room := range gs.Rooms {
+			if time.Since(room.FieldState.LastUpdate) > time.Hour {
+				// TODO: Remove room
+			}
+			var _ = gid
+		}
+		gs.roomLock.Unlock()
+
+		log.WithFields(log.Fields{
+			"time": time.Now(),
+			"dur":  time.Since(start),
+		}).Info("GC Run")
+	}
+}
+
 type PlayerConn struct {
 	Name string
 	*websocket.Conn
 }
 
+type GameState struct {
+	GameID     string                     `json:"gid"`
+	Players    map[string]json.RawMessage `json:"players"`
+	LastUpdate time.Time                  `json:"lastupdated"`
+}
+
+func NewGameState(gid string) *GameState {
+	gs := new(GameState)
+	gs.Players = make(map[string]json.RawMessage)
+	gs.GameID = gid
+
+	return gs
+}
+
 type Room struct {
-	GameID    string
-	WS        *websocket.Upgrader
-	Clients   map[string]*PlayerConn
-	GameState map[string]json.RawMessage
+	GameID     string
+	WS         *websocket.Upgrader
+	Clients    map[string]*PlayerConn
+	FieldState *GameState
 
 	mutex sync.Mutex
 
@@ -128,7 +175,7 @@ type Room struct {
 func NewRoom(gid string, ctx context.Context) *Room {
 	r := new(Room)
 	r.GameID = gid
-	r.GameState = make(map[string]json.RawMessage)
+	r.FieldState = NewGameState(gid)
 	r.WS = &websocket.Upgrader{CheckOrigin: func(r *http.Request) bool {
 		return true
 	}}
@@ -159,10 +206,12 @@ func (r *Room) PlayerJoin(c *websocket.Conn, name string) error {
 	defer r.mutex.Unlock()
 	_, ok := r.Clients[name]
 	if ok {
-		return fmt.Errorf("player name taken")
+		// return fmt.Errorf("player name taken")
 	}
 	r.Clients[name] = player
-	r.GameState[name] = []byte("{}")
+	if _, ok := r.FieldState.Players[name]; !ok {
+		r.FieldState.Players[name] = []byte("{}")
+	}
 
 	go r.PlayerListener(player, r.ctx)
 	r.broadcastAll(websocket.TextMessage, r.GetGameState())
@@ -200,7 +249,8 @@ func (r *Room) HandleMessage(c *PlayerConn, mt int, msg []byte) {
 	case MsgTypePlayerState:
 		// Update player state
 		r.mutex.Lock()
-		r.GameState[c.Name] = gm.Content
+		r.FieldState.Players[c.Name] = gm.Content
+		r.FieldState.LastUpdate = time.Now()
 		msg := r.GetGameState()
 		r.broadcastAll(websocket.TextMessage, msg)
 		r.mutex.Unlock()
@@ -211,7 +261,7 @@ func (r *Room) HandleMessage(c *PlayerConn, mt int, msg []byte) {
 }
 
 func (r *Room) GetGameState() []byte {
-	data, err := json.Marshal(r.GameState)
+	data, err := json.Marshal(r.FieldState)
 	if err != nil {
 		log.WithError(err).Errorf("failed to marshal game state")
 	}
