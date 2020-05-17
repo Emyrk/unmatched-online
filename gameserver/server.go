@@ -39,7 +39,7 @@ func (gs *GameServer) Serve() error {
 	gs.Mux.HandleFunc("/ws/{gid}", gs.WSHandler)
 
 	gs.HTTPServer.Handler = handlers.CORS()(gs.Mux)
-	gs.HTTPServer.Addr = "localhost:1111"
+	gs.HTTPServer.Addr = "0.0.0.0:1111"
 
 	return gs.HTTPServer.ListenAndServe()
 }
