@@ -255,6 +255,11 @@ func (r *Room) HandleMessage(c *PlayerConn, mt int, msg []byte) {
 		r.broadcastAll(websocket.TextMessage, msg)
 		r.mutex.Unlock()
 		log.Info("Player State Received")
+	case MsgTypePing:
+		msg, _ := json.Marshal(GameMessage{
+			MessageType: MsgTypePong,
+		})
+		_ = c.WriteMessage(websocket.TextMessage, msg)
 	default:
 		log.Errorf("msg type '%s' is undefined", gm.MessageType)
 	}

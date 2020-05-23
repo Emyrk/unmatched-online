@@ -7,6 +7,8 @@ import (
 const (
 	MsgTypePlayerState = "playerstate"
 	MsgTypeGameState   = "gamestate"
+	MsgTypePing        = "ping"
+	MsgTypePong        = "pong"
 )
 
 type GameMessage struct {
