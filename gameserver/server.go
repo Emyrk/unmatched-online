@@ -147,9 +147,10 @@ type PlayerConn struct {
 }
 
 type GameState struct {
-	GameID     string                     `json:"gid"`
-	Players    map[string]json.RawMessage `json:"players"`
-	LastUpdate time.Time                  `json:"lastupdated"`
+	GameID     string                                `json:"gid"`
+	Players    map[string]json.RawMessage            `json:"players"`
+	PlayerData map[string]map[string]json.RawMessage `json:"player_data"`
+	LastUpdate time.Time                             `json:"lastupdated"`
 }
 
 func NewGameState(gid string) *GameState {
@@ -246,6 +247,7 @@ func (r *Room) HandleMessage(c *PlayerConn, mt int, msg []byte) {
 		return
 	}
 	switch gm.MessageType {
+	case MsgTypePlayerData:
 	case MsgTypePlayerState:
 		// Update player state
 		r.mutex.Lock()

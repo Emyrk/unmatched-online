@@ -5,6 +5,7 @@ import (
 )
 
 const (
+	MsgTypePlayerData  = "playerdata"
 	MsgTypePlayerState = "playerstate"
 	MsgTypeGameState   = "gamestate"
 	MsgTypePing        = "ping"
